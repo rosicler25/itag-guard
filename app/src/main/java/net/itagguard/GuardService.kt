@@ -428,7 +428,7 @@ class GuardService : Service() {
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
             logLine("servizi scoperti: ${g.services.size}")
             gattText = "connesso, invio comando"
-            writeAlert(2)
+            writeAlert(1)
         }
 
         override fun onCharacteristicWrite(g: BluetoothGatt,
