@@ -440,7 +440,7 @@ class GuardService : Service() {
 
     private fun ringTag() {
         if (macAddr.isEmpty()) return
-        if (gatt != null) { writeAlert(2); return }
+        if (gatt != null) { writeAlert(1); return }
         val d = targetDevice() ?: run { logLine("tag non ancora visto: impossibile connettersi"); return }
         gattText = "connessione…"
         logLine("connessione GATT per far suonare")
