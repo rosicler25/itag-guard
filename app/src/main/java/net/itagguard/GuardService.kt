@@ -19,6 +19,9 @@ import net.itagguard.Cfg.soundUriParsed
 import net.itagguard.Cfg.timeoutSec
 import net.itagguard.Cfg.vibrate
 import java.text.SimpleDateFormat
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import java.util.*
 
 @SuppressLint("MissingPermission")
@@ -155,8 +158,37 @@ class GuardService : Service() {
         }
     }
 
+    private fun scanPermissionGranted(): Boolean {
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Manifest.permission.BLUETOOTH_SCAN
+        } else {
+            Manifest.permission.ACCESS_FINE_LOCATION
+        }
+    
+        return ContextCompat.checkSelfPermission(this, permission) ==
+            PackageManager.PERMISSION_GRANTED
+    }
+    
+    private fun scanPermissionErrorText(): String {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            "Permesso Bluetooth non concesso"
+        } else {
+            "Permesso Posizione non concesso"
+        }
+    }
+
     private fun restartScan(mode: Int) {
-        if (macAddr.isEmpty()) { stateText = "MAC non impostato"; return }
+        if (macAddr.isEmpty()) {
+            stateText = "MAC non impostato"
+            return
+        }
+    
+        if (!scanPermissionGranted()) {
+            stateText = scanPermissionErrorText()
+            logLine("scan non avviato: $stateText")
+            updateStatusNotif()
+            return
+        }
         val ad = (getSystemService(BluetoothManager::class.java)).adapter
         if (ad == null || !ad.isEnabled) { btOn = false; stateText = "Bluetooth spento"; return }
         btOn = true
@@ -201,6 +233,7 @@ class GuardService : Service() {
 
             stateText = when {
                 !btOn -> "Bluetooth spento"
+                !scanPermissionGranted() -> scanPermissionErrorText()
                 macAddr.isEmpty() -> "MAC non impostato"
                 lastSeenEl == 0L -> "in attesa del primo segnale…"
                 lost -> "TAG PERSO"
