@@ -267,42 +267,106 @@ class MainActivity : Activity() {
 
     private fun scanForTags() {
         val ad = getSystemService(BluetoothManager::class.java).adapter
-        if (ad == null || !ad.isEnabled) { toast("Attiva il Bluetooth"); return }
-        if (Build.VERSION.SDK_INT >= 31 &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
-            != PackageManager.PERMISSION_GRANTED) { askPerms(); return }
-
+    
+        if (ad == null || !ad.isEnabled) {
+            toast("Attiva il Bluetooth prima di cercare il tag")
+            return
+        }
+    
+        /*
+         * Android 12+ usa BLUETOOTH_SCAN.
+         * Android 11 e precedenti, incluso Android 9, richiedono Posizione.
+         */
+        val scanPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Manifest.permission.BLUETOOTH_SCAN
+        } else {
+            Manifest.permission.ACCESS_FINE_LOCATION
+        }
+    
+        if (ContextCompat.checkSelfPermission(this, scanPermission)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            toast("Concedi prima il permesso richiesto")
+            askPerms()
+            return
+        }
+    
+        val scanner = ad.bluetoothLeScanner
+        if (scanner == null) {
+            toast("Scanner Bluetooth LE non disponibile")
+            return
+        }
+    
         val found = LinkedHashMap<String, Pair<String, Int>>()
-        val sc = ad.bluetoothLeScanner
+    
         val cb = object : ScanCallback() {
-            override fun onScanResult(t: Int, r: ScanResult) {
-                val nm = r.scanRecord?.deviceName ?: r.device.name ?: "(anonimo)"
-                found[r.device.address] = nm to r.rssi
+            override fun onScanResult(callbackType: Int, result: ScanResult) {
+                val name = result.scanRecord?.deviceName
+                    ?: result.device.name
+                    ?: "(anonimo)"
+    
+                found[result.device.address] = name to result.rssi
+            }
+    
+            override fun onScanFailed(errorCode: Int) {
+                toast("Errore scansione BLE: $errorCode")
             }
         }
-        val dlg = AlertDialog.Builder(this)
+    
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Scansione in corso…")
-            .setMessage("8 secondi. Tieni il tag vicino al telefono.")
-            .setCancelable(false).show()
-
-        sc.startScan(null,
-            ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), cb)
-
+            .setMessage(
+                "Attendi 8 secondi.\n\n" +
+                "Su Android 9 devono essere attivi Bluetooth e Posizione."
+            )
+            .setCancelable(false)
+            .show()
+    
+        try {
+            val settings = ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .build()
+    
+            scanner.startScan(emptyList(), settings, cb)
+        } catch (e: SecurityException) {
+            dialog.dismiss()
+            toast("Permesso Bluetooth/Posizione mancante")
+            return
+        } catch (e: Exception) {
+            dialog.dismiss()
+            toast("Impossibile avviare la scansione: ${e.message}")
+            return
+        }
+    
         h.postDelayed({
-            runCatching { sc.stopScan(cb) }
-            dlg.dismiss()
-            if (found.isEmpty()) { toast("Nessun dispositivo trovato"); return@postDelayed }
-            val list = found.entries.sortedByDescending { it.value.second }
-            val labels = list.map { "${it.value.first}\n${it.key} · ${it.value.second} dBm" }
+            runCatching { scanner.stopScan(cb) }
+            dialog.dismiss()
+    
+            if (found.isEmpty()) {
+                toast(
+                    "Nessun dispositivo trovato.\n" +
+                    "Controlla Bluetooth, Posizione e permessi."
+                )
+                return@postDelayed
+            }
+    
+            val devices = found.entries.sortedByDescending { it.value.second }
+    
+            val labels = devices.map {
+                val name = it.value.first
+                val rssi = it.value.second
+                "$name\n${it.key} · $rssi dBm"
+            }.toTypedArray()
+    
             AlertDialog.Builder(this)
-                .setTitle("Scegli il tag (${list.size} trovati)")
-                .setItems(labels.toTypedArray()) { _, i ->
-                    macIn.setText(list[i].key)
-                    toast("MAC impostato — premi SALVA")
+                .setTitle("Scegli il tag (${devices.size} trovati)")
+                .setItems(labels) { _, index ->
+                    macIn.setText(devices[index].key)
+                    toast("MAC impostato: premi SALVA E APPLICA")
                 }
                 .setNegativeButton("Annulla", null)
                 .show()
-        }, 8000)
+        }, 8_000)
     }
 
     /* ---------------- log e refresh ---------------- */
